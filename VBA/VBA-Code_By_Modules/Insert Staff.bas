@@ -1,6 +1,6 @@
 Attribute VB_Name = "InsertStaff"
 Sub InsertStaff(dutyType As String)
-    'On Error GoTo ErrHandler
+    On Error GoTo ErrHandler
     
     Dim ws As Worksheet
     Dim tbl As ListObject
@@ -38,6 +38,7 @@ Sub InsertStaff(dutyType As String)
             Exit Sub
     End Select
     
+    ' Validate worksheet and table
     If ws Is Nothing Then
         MsgBox "Worksheet for " & dutyType & " not found.", vbExclamation
         Exit Sub
@@ -51,40 +52,43 @@ Sub InsertStaff(dutyType As String)
         Exit Sub
     End If
 
+    ' Unprotect the worksheet (unlock)
+    ws.Unprotect
+    
+    ' Read input values from the unlocked data entry range
     staffName = UCase(Trim(ws.Range("D5").Value)) ' Name
     dept = Trim(ws.Range("D6").Value)             ' Department
     availType = UCase(Trim(ws.Range("D7").Value)) ' Availability Type
     workDays = Trim(ws.Range("D8").Value)         ' Working Days
     percentage = Trim(ws.Range("D9").Value)       ' Duties Percentage
 
-
-    ' Auto-fill logic based on Availability Type (skip for Sat_AOH)
+    ' Auto-fill logic based on Availability Type
     If availType = "ALL DAYS" Then
-            percentage = "100"
-            workDays = ""
-        ElseIf availType = "SPECIFIC DAYS" Then
-            If workDays = "" Then
-                MsgBox "Please enter Working Days for Specific Days availability.", vbExclamation
-                Exit Sub
-            End If
+        percentage = "100"
+        workDays = ""
+    ElseIf availType = "SPECIFIC DAYS" Then
+        If workDays = "" Then
+            MsgBox "Please enter Working Days for Specific Days availability.", vbExclamation
+            GoTo ReprotectAndExit
+        End If
     End If
     
     ' Validate percentage
     If percentage = "" Or Not IsNumeric(percentage) Or Val(percentage) <= 0 Or Val(percentage) > 100 Then
         MsgBox "Please enter a valid Duties Percentage (1-100).", vbExclamation
-        Exit Sub
+        GoTo ReprotectAndExit
     End If
 
     If Len(Trim(staffName)) = 0 Or Len(Trim(dept)) = 0 Then
         MsgBox "Please fill in Name and Department.", vbExclamation
-        Exit Sub
+        GoTo ReprotectAndExit
     End If
     
     ' Check for duplicate names
     For checkRow = 1 To tbl.ListRows.Count
         If UCase(Trim(tbl.ListRows(checkRow).Range.Cells(1, GetColumnIndex(tbl, "Name")).Value)) = staffName Then
             MsgBox "This staff name already exists.", vbExclamation
-            Exit Sub
+            GoTo ReprotectAndExit
         End If
     Next checkRow
     
@@ -103,7 +107,7 @@ Sub InsertStaff(dutyType As String)
         If nameIndex = -1 Or deptIndex = -1 Or counterIndex = -1 Or availIndex = -1 Or percIndex = -1 Or maxIndex = -1 Then
             MsgBox "Required columns 'Name', 'Department', 'Availability Type', 'Duties Percentage', 'Max Duties', or 'Duties Counter' not found in '" & tbl.Name & "'.", vbExclamation
             newRow.Delete
-            Exit Sub
+            GoTo ReprotectAndExit
         End If
         
         .Cells(1, nameIndex).Value = staffName
@@ -125,7 +129,7 @@ Sub InsertStaff(dutyType As String)
                 MsgBox "Columns 'Name' or 'Working Days' not found in '" & specificDaysTbl.Name & "'.", vbExclamation
                 specificRow.Delete
                 newRow.Delete
-                Exit Sub
+                GoTo ReprotectAndExit
             End If
             .Cells(1, specNameIndex).Value = staffName
             .Cells(1, specDaysIndex).Value = workDays
@@ -138,6 +142,21 @@ Sub InsertStaff(dutyType As String)
     ws.Range("D5:D9").ClearContents
 
     MsgBox "Staff added and Max Duties calculated successfully for " & dutyType & "!", vbInformation
+    GoTo ReprotectAndExit
+
+ReprotectAndExit:
+    ' Reprotect the worksheet and lock table ranges
+    With ws
+        If Not tbl Is Nothing Then
+            .ListObjects(tbl.Name).Range.Locked = True
+        End If
+        If Not specificDaysTbl Is Nothing Then
+            .ListObjects(specificDaysTbl.Name).Range.Locked = True
+        End If
+        .Range("D5:D9").Locked = False ' keep data entry remains unlocked
+        .Protect DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                 AllowFiltering:=True, AllowSorting:=True, AllowUsingPivotTables:=True
+    End With
     Exit Sub
 
 ErrHandler:
@@ -147,7 +166,7 @@ ErrHandler:
            "Worksheet: " & IIf(ws Is Nothing, "Not Set", ws.Name), vbCritical
     If Not newRow Is Nothing Then newRow.Delete
     If Not specificRow Is Nothing Then specificRow.Delete
-    Exit Sub
+    GoTo ReprotectAndExit
 End Sub
 
 ' Helper function to get column index
@@ -178,3 +197,4 @@ End Sub
 Sub RunInsertStaffSatAOH()
     InsertStaff "Sat_AOH"
 End Sub
+
