@@ -17,9 +17,11 @@ Sub DuplicateActualRoster()
 
     copySheet.Protect password:="nuslib2017@52", _
                         AllowSorting:=True, _
-                        AllowFiltering:=True
+                        AllowFiltering:=True, _
+                        AllowFormattingCells:=True
                         
     
     srcSheet.Activate
     
 End Sub
+
