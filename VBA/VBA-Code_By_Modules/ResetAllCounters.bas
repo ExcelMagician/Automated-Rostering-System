@@ -1,38 +1,47 @@
 Attribute VB_Name = "ResetAllCounters"
 Sub ResetAllCounters()
-Attribute ResetAllCounters.VB_ProcData.VB_Invoke_Func = " \n14"
-'
-' ResetAllCounters Macro
-'
-
-'
-    Sheets("Loan Mail Box PersonnelList").Select
-    Range("H15").Select
-    ActiveCell.FormulaR1C1 = "0"
-    Selection.AutoFill Destination:=Range("LoanMailBoxMainList[Duties Counter]")
-    Range("LoanMailBoxMainList[Duties Counter]").Select
-    Sheets("Morning PersonnelList").Select
-    Range("H15").Select
-    ActiveCell.FormulaR1C1 = "0"
-    Selection.AutoFill Destination:=Range("MorningMainList[Duties Counter]")
-    Range("MorningMainList[Duties Counter]").Select
-    Sheets("Afternoon PersonnelList").Select
-    Range("H15").Select
-    ActiveCell.FormulaR1C1 = "0"
-    Selection.AutoFill Destination:=Range("AfternoonMainList[Duties Counter]")
-    Range("AfternoonMainList[Duties Counter]").Select
-    Sheets("AOH PersonnelList").Select
-    Range("H15").Select
-    ActiveCell.FormulaR1C1 = "0"
-    ActiveCell.FormulaR1C1 = "0"
-    Selection.AutoFill Destination:=Range("AOHMainList[Duties Counter]")
-    Range("AOHMainList[Duties Counter]").Select
-    Sheets("Sat AOH PersonnelList").Select
-    Range("H14").Select
-    ActiveCell.FormulaR1C1 = "0"
-    Selection.AutoFill Destination:=Range("SatAOHMainList[Duties Counter]")
-    Range("SatAOHMainList[Duties Counter]").Select
+    Dim ws As Worksheet
+    Dim tbl As ListObject
+    Dim counterColumn As ListColumn
+    Dim tblNames As Variant
+    Dim sheetNames As Variant
+    Dim i As Integer
+    Dim wsRoster As Worksheet
     
+    ' Define your table and corresponding sheet names
+    sheetNames = Array("Loan Mail Box PersonnelList", "Morning PersonnelList", _
+                       "Afternoon PersonnelList", "AOH PersonnelList", "Sat AOH PersonnelList")
+    tblNames = Array("LoanMailBoxMainList", "MorningMainList", "AfternoonMainList", _
+                     "AOHMainList", "SatAOHMainList")
+    
+    ' Loop through all specified tables and reset Duties Counter column to 0
+    For i = 0 To UBound(sheetNames)
+        Set ws = ThisWorkbook.Sheets(sheetNames(i))
+        ws.Unprotect
+        Set tbl = ws.ListObjects(tblNames(i))
+        
+        Set counterColumn = tbl.ListColumns("Duties Counter")
+        
+        Dim j As Long
+        For j = 1 To counterColumn.DataBodyRange.Rows.Count
+            counterColumn.DataBodyRange.Cells(j, 1).Value = 0
+        Next j
+        
+        ' Reprotect the worksheet and lock table ranges
+        With ws
+            If Not tbl Is Nothing Then
+                .ListObjects(tbl.Name).Range.Locked = True
+            End If
+            .Range("D5:D9").Locked = False ' keep data entry remains unlocked
+            .Protect DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFiltering:=True, AllowSorting:=True, AllowUsingPivotTables:=True
+        End With
+    
+    Next i
+    
+    ' Activate Roster sheet
     Set wsRoster = Sheets("Roster")
     wsRoster.Activate
 End Sub
+
+
