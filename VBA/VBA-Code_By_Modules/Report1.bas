@@ -101,7 +101,7 @@ Sub GenerateMorningShiftAnalysis()
     For i = 2 To nameList.Rows.Count + 1
         empName = UCase(Trim(wsAnalysis.Cells(i, 1).Value))
         wsAnalysis.Cells(i, 3).Value = dict(empName) ' Actual Counter
-        wsAnalysis.Cells(i, 4).FormulaR1C1 = "=RC[-2]-RC[-1]" ' System - Actual
+        wsAnalysis.Cells(i, 4).FormulaR1C1 = "=RC[-1]-RC[-2]" ' Actual - System
     Next i
 
     MsgBox "Morning shift analysis generated using '" & latestRosterName & "'.", vbInformation
