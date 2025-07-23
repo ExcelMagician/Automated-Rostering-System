@@ -15,7 +15,7 @@ Sub GenerateMorningShiftAnalysis()
     Dim START_ROW As Long: START_ROW = 6
     Dim MOR_COL As Long: MOR_COL = 6
     Dim cell As Range, cellValue As String, currStaff As String
-    Dim nextRow As Long
+    Dim nextRow As Long, tableStartRow As Long
 
     ' Find latest ActualRoster_* sheet
     newestDate = 0
@@ -53,29 +53,36 @@ Sub GenerateMorningShiftAnalysis()
     Set wsAnalysis = Sheets.Add(After:=Sheets(Sheets.Count))
     wsAnalysis.Name = "MorningAnalysis"
 
+    ' Write title
+    wsAnalysis.Range("A1").Value = "Morning Slot Analysis"
+    wsAnalysis.Range("A1").Font.Bold = True
+    wsAnalysis.Range("A1").Font.Size = 14
+    tableStartRow = 3 ' header starts here
+
+    ' Header row
+    With wsAnalysis
+        .Range("A" & tableStartRow).Value = "Name"
+        .Range("B" & tableStartRow).Value = "System Counter"
+        .Range("C" & tableStartRow).Value = "Actual Counter"
+        .Range("D" & tableStartRow).Value = "Difference"
+        .Range("E" & tableStartRow).Value = "% Difference"
+    End With
+
     ' Get personnel table
     Set tbl = wsPersonnel.ListObjects("MorningMainList")
     Set nameList = tbl.ListColumns("Name").DataBodyRange
     Set dutyCounterList = tbl.ListColumns("Duties Counter").DataBodyRange
 
-    ' Header row
-    With wsAnalysis
-        .Range("A1").Value = "Name"
-        .Range("B1").Value = "System Counter"
-        .Range("C1").Value = "Actual Counter"
-        .Range("D1").Value = "Difference"
-    End With
-
-    ' Copy names and system counters
+    ' Create dictionary and fill initial system counter
     Set dict = CreateObject("Scripting.Dictionary")
     For i = 1 To nameList.Rows.Count
         empName = UCase(Trim(nameList.Cells(i, 1).Value))
-        wsAnalysis.Cells(i + 1, 1).Value = empName
-        wsAnalysis.Cells(i + 1, 2).Value = dutyCounterList.Cells(i, 1).Value
+        wsAnalysis.Cells(i + tableStartRow, 1).Value = empName
+        wsAnalysis.Cells(i + tableStartRow, 2).Value = dutyCounterList.Cells(i, 1).Value
         dict(empName) = 0
     Next i
 
-    ' Count actual appearances
+    ' Count actual appearances from roster
     For i = START_ROW To 186
         Set cell = wsRosterCopy.Cells(i, MOR_COL)
         cellValue = cell.Value
@@ -86,32 +93,39 @@ Sub GenerateMorningShiftAnalysis()
             currStaff = UCase(Trim(cellValue))
         End If
 
-        If Len(currStaff) > 0 Then
+        If Len(currStaff) > 0 And currStaff <> "CLOSED" Then
             If dict.exists(currStaff) Then
                 dict(currStaff) = dict(currStaff) + 1
             Else
-                ' New staff: add to bottom of analysis
+                ' New staff found
                 nextRow = wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row + 1
                 wsAnalysis.Cells(nextRow, 1).Value = currStaff
                 wsAnalysis.Cells(nextRow, 2).Value = 0
                 wsAnalysis.Cells(nextRow, 3).Value = 1
                 wsAnalysis.Cells(nextRow, 4).FormulaR1C1 = "=RC[-1]-RC[-2]"
+                wsAnalysis.Cells(nextRow, 5).FormulaR1C1 = "=IF(RC[-3]=0,"""",RC[-1]/RC[-3]*100)"
                 dict(currStaff) = 1
 
-                ' Highlight the new staff row in yellow
-                wsAnalysis.Range(wsAnalysis.Cells(nextRow, 1), wsAnalysis.Cells(nextRow, 4)).Interior.Color = RGB(255, 255, 153)
+                ' Highlight new row
+                wsAnalysis.Range(wsAnalysis.Cells(nextRow, 1), wsAnalysis.Cells(nextRow, 5)).Interior.Color = RGB(255, 255, 153)
             End If
         End If
     Next i
 
-    ' Fill actual counters and compute differences
-    For i = 2 To wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row
+    ' Fill actual count and compute difference + percentage
+    For i = tableStartRow + 1 To wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row
         empName = UCase(Trim(wsAnalysis.Cells(i, 1).Value))
         If dict.exists(empName) Then
             wsAnalysis.Cells(i, 3).Value = dict(empName)
             wsAnalysis.Cells(i, 4).FormulaR1C1 = "=RC[-1]-RC[-2]"
+            wsAnalysis.Cells(i, 5).FormulaR1C1 = "=IF(RC[-3]=0,"""",RC[-1]/RC[-3]*100)"
         End If
     Next i
+
+    ' Format as Table
+    Dim tableRange As Range
+    Set tableRange = wsAnalysis.Range("A" & tableStartRow & ":E" & wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row)
+    wsAnalysis.ListObjects.Add(xlSrcRange, tableRange, , xlYes).Name = "MorningShiftTable"
 
     MsgBox "Morning shift analysis generated using '" & latestRosterName & "'.", vbInformation
 End Sub
