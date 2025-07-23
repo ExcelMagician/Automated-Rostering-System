@@ -41,6 +41,17 @@ Sub GenerateMorningShiftAnalysis()
         Exit Sub
     End If
 
+    ' Add big title at row 1
+    With wsAnalysis.Range("A1:E1")
+        .Merge
+        .Value = "Analysis Report"
+        .Interior.Color = RGB(255, 199, 206) ' Light red
+        .Font.Size = 16
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
     Set wsRosterCopy = Sheets(latestRosterName)
     Set wsPersonnel = Sheets("Morning PersonnelList")
 
@@ -57,7 +68,7 @@ Sub GenerateMorningShiftAnalysis()
     wsAnalysis.Range("A1").Value = "Morning Slot Analysis"
     wsAnalysis.Range("A1").Font.Bold = True
     wsAnalysis.Range("A1").Font.Size = 14
-    tableStartRow = 3 ' header starts here
+    tableStartRow = 4 ' header starts here
 
     ' Header row
     With wsAnalysis
@@ -118,14 +129,32 @@ Sub GenerateMorningShiftAnalysis()
         If dict.exists(empName) Then
             wsAnalysis.Cells(i, 3).Value = dict(empName)
             wsAnalysis.Cells(i, 4).FormulaR1C1 = "=RC[-1]-RC[-2]"
-            wsAnalysis.Cells(i, 5).FormulaR1C1 = "=IF(RC[-3]=0,"""",RC[-1]/RC[-3]*100)"
+            wsAnalysis.Cells(i, 5).FormulaR1C1 = "=IF(RC[-3]=0,0,RC[-1]/RC[-3]*100)"
         End If
     Next i
 
     ' Format as Table
     Dim tableRange As Range
-    Set tableRange = wsAnalysis.Range("A" & tableStartRow & ":E" & wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row)
-    wsAnalysis.ListObjects.Add(xlSrcRange, tableRange, , xlYes).Name = "MorningShiftTable"
+    Dim analysisTable As ListObject
+
+    lastRow = wsAnalysis.Cells(wsAnalysis.Rows.Count, 1).End(xlUp).row
+    Set tableRange = wsAnalysis.Range("A" & tableStartRow & ":E" & lastRow)
+    Set analysisTable = wsAnalysis.ListObjects.Add(xlSrcRange, tableRange, , xlYes)
+    analysisTable.Name = "MorningShiftTable"
+
+    ' Format % column to 2 decimal places
+    analysisTable.ListColumns("% Difference").DataBodyRange.NumberFormat = "0.00"
+
+
+    ' Add small section title at row 3
+    With wsAnalysis.Range("A3:C3")
+        .Merge
+        .Value = "Morning Slot Analysis"
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Interior.Color = analysisTable.HeaderRowRange.Interior.Color
+    End With
 
     MsgBox "Morning shift analysis generated using '" & latestRosterName & "'.", vbInformation
 End Sub
