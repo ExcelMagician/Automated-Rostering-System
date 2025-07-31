@@ -1,32 +1,46 @@
 Attribute VB_Name = "AssignAfternoonDuties"
 ' Declare worksheet and table
-Private wsRoster As Worksheet
 Private wsPersonnel As Worksheet
-Private wsSettings As Worksheet
 Private afternoontbl As ListObject
 Private spectbl As ListObject
 
 Sub AssignAfternoonDuties()
-    Set wsRoster = Sheets("MasterCopy (2)")
+    ' Variable declarations at the top
+    Dim i As Long, j As Long, r As Long, k As Long
+    Dim dateCount As Long
+    Dim totalDays As Long
+    Dim dayName As String
+    Dim maxDuties As Long
+    Dim staffName As String
+    Dim workDays As Variant
+    Dim eligibleRows As Collection
+    Dim tmpRows() As Long
+    Dim assignedCount As Long
+    Dim weekStart As Long, weekEnd As Long
+    Dim dutyCount As Long
+    Dim needsReassignment As Boolean
+    Dim lastTwoWeeksStart As Long
+    Dim staffPool() As String
+    Dim tmpStaff() As String
+    Dim poolIndex As Long
+    Dim assignedInThisPass As Boolean
+    Dim poolSize As Long
+    Dim initialSize As Long
+    Dim currDuties As Long
+    Dim dutiesNeeded As Long
+    Dim reassignmentAttempts As Long
+
+    Set wsRoster = Sheets("Roster")
     Set wsSettings = Sheets("Settings")
     Set wsPersonnel = Sheets("Afternoon PersonnelList")
     Set afternoontbl = wsPersonnel.ListObjects("AfternoonMainList")
     Set spectbl = wsPersonnel.ListObjects("AfternoonSpecificDaysWorkingStaff")
     
-    Dim i As Long, j As Long, r As Long
-    Dim dateCount As Long
-    Dim totalDays As Long
-    Dim dayName As String
-    Dim maxDuties As Long
-    Dim candidates() As String
-    Dim staffName As String
-    Dim workDays As Variant
-
-    totalDays = wsRoster.Range(wsRoster.Cells(START_ROW, DATE_COL), wsRoster.Cells(LAST_ROW_ROSTER, DATE_COL)).Rows.Count
-    Debug.Print "afternoon assignment starts here"
+    totalDays = wsRoster.Range(wsRoster.Cells(START_ROW, DATE_COL), wsRoster.Cells(last_row_roster, DATE_COL)).Rows.count
+    Debug.Print "Afternoon assignment starts here"
     
     ' Step 1: Assign Specific Days Staff
-    For i = 1 To spectbl.ListRows.Count
+    For i = 1 To spectbl.ListRows.count
         staffName = spectbl.DataBodyRange(i, spectbl.ListColumns("Name").Index).Value
         workDays = Split(spectbl.DataBodyRange(i, spectbl.ListColumns("Working Days").Index).Value, ",")
         
@@ -35,62 +49,72 @@ Sub AssignAfternoonDuties()
             workDays(j) = Trim(workDays(j))
         Next j
         
-        ' Get max duties for this staff from MorningMainList
-        For r = 1 To afternoontbl.ListRows.Count
+        ' Get max duties and department for this staff from AfternoonMainList
+        Dim dept As String
+        For r = 1 To afternoontbl.ListRows.count
             If afternoontbl.DataBodyRange(r, afternoontbl.ListColumns("Name").Index).Value = staffName Then
                 maxDuties = afternoontbl.DataBodyRange(r, afternoontbl.ListColumns("Max Duties").Index).Value
+                dept = afternoontbl.DataBodyRange(r, afternoontbl.ListColumns("Department").Index).Value
                 Exit For
             End If
         Next r
         
         ' Build candidate pool of eligible rows
-        Dim eligibleRows As Collection
         Set eligibleRows = GetEligibleRows(totalDays, workDays)
         
         ' Shuffle eligibleRows randomly
-        Dim tmpRows() As Long
-        ReDim tmpRows(1 To eligibleRows.Count)
-        For j = 1 To eligibleRows.Count
+        ReDim tmpRows(1 To eligibleRows.count)
+        For j = 1 To eligibleRows.count
             tmpRows(j) = eligibleRows(j)
         Next j
         Call ShuffleArray(tmpRows)
         
         ' Assign staff
-        Dim assignedCount As Long
         assignedCount = 0
-        
-        For j = 1 To eligibleRows.Count
+        For j = 1 To eligibleRows.count
             If assignedCount >= maxDuties Then Exit For
-        
-            If Not IsWorkingOnSameDay(tmpRows(j), staffName) Then
-                wsRoster.Cells(tmpRows(j), AFT_COL).Value = staffName
+            r = tmpRows(j)
+            If Not IsWorkingOnSameDay(r, staffName) And wsRoster.Cells(r, AFT_COL).Value = "" Then
+                ' Check vacation constraint
+                If UCase(Trim(wsRoster.Cells(r, VAC_COL).Value)) = "VACATION" And UCase(dept) <> "APRM" Then
+                    Debug.Print "Skipped " & staffName & " for vacation row " & r & " (not APRM)"
+                    GoTo NextRowJ
+                End If
+                wsRoster.Cells(r, AFT_COL).Value = staffName
                 Call IncrementDutiesCounter(staffName)
                 assignedCount = assignedCount + 1
+                Debug.Print "Assigned Specific Days staff " & staffName & " to row " & r
             End If
+NextRowJ:
         Next j
     Next i
     
     ' Step 2: Assign All Days Staff
-    For r = START_ROW To LAST_ROW_ROSTER
+    For r = START_ROW To last_row_roster
         If wsRoster.Cells(r, DAY_COL).Value = "Sat" Then GoTo SkipDay
         If wsRoster.Cells(r, AFT_COL).Value = "CLOSED" Then GoTo SkipDay
-        For i = 1 To afternoontbl.ListRows.Count
+        For i = 1 To afternoontbl.ListRows.count
             staffName = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value
             If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) = "SPECIFIC DAYS" Then
                 GoTo SkipStaff
             End If
             
             maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
-            Dim currDuties As Long
             currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
+            dept = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Department").Index).Value
             ' Check if the staff already reached his max duties
             If currDuties >= maxDuties Then GoTo SkipStaff
             If IsWorkingOnSameDay(r, staffName) Then GoTo SkipStaff
             
-            ' Assign from top
+            ' Assign from top with vacation constraint
             If wsRoster.Cells(r, AFT_COL).Value = "" Then
+                If UCase(Trim(wsRoster.Cells(r, VAC_COL).Value)) = "VACATION" And UCase(dept) <> "APRM" Then
+                    Debug.Print "Skipped " & staffName & " for vacation row " & r & " (not APRM)"
+                    GoTo SkipStaff
+                End If
                 wsRoster.Cells(r, AFT_COL).Value = staffName
                 Call IncrementDutiesCounter(staffName)
+                Debug.Print "Assigned All Days staff " & staffName & " to row " & r
                 Exit For
             End If
         
@@ -100,152 +124,215 @@ SkipStaff:
 SkipDay:
         Next r
     
-    ' Step 3: Reassign All Days Staff for last 2 weeks with random assignment
-    Dim needsReassignment As Boolean
+    ' Step 3: Reassign All Days Staff for unfilled slots with reassignment
+    reassignmentAttempts = 0
+    Const MAX_ATTEMPTS As Long = 10
     Do
-        needsReassignment = False
-        Dim lastTwoWeeksStart As Long
-        lastTwoWeeksStart = LAST_ROW_ROSTER - 13 ' Last 14 days (2 weeks)
-        If lastTwoWeeksStart < START_ROW Then lastTwoWeeksStart = START_ROW
+        ' Check for unfilled slots
+        Dim unfilledSlots As Long
+        unfilledSlots = CountUnfilledSlots(START_ROW, last_row_roster)
+        Debug.Print "Unfilled slots: " & unfilledSlots
         
-        ' Check if any All Days staff need reassignment
-        For i = 1 To afternoontbl.ListRows.Count
-            staffName = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value
-            maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
-            currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
-            If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" And currDuties < maxDuties Then
-                needsReassignment = True
-                Debug.Print "Staff " & staffName & " needs reassignment (Current: " & currDuties & ", Max: " & maxDuties & ")"
-            End If
-        Next i
+        ' Check for eligible staff
+        Dim eligibleStaffCount As Long
+        eligibleStaffCount = CountEligibleStaff
+        Debug.Print "Eligible staff (duties < max): " & eligibleStaffCount
         
-        If needsReassignment Then
-            ' Remove existing assignments for All Days staff in last 2 weeks and collect staff needing reassignment
-            Dim removedStaff() As String
-            ReDim removedStaff(0)
-            For r = lastTwoWeeksStart To LAST_ROW_ROSTER
-                If wsRoster.Cells(r, AFT_COL).Value <> "" And wsRoster.Cells(r, AFT_COL).Value <> "CLOSED" Then
-                    staffName = wsRoster.Cells(r, AFT_COL).Value
-                    For i = 1 To afternoontbl.ListRows.Count
-                        If afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value = staffName And _
-                           UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" Then
-                            wsRoster.Cells(r, AFT_COL).Value = ""
-                            Call DecrementDutiesCounter(staffName)
-                            Debug.Print "Removed " & staffName & " from row " & r & " (Last 2 weeks)"
-                            ' Add to removedStaff array if not already present
-                            Dim found As Boolean
-                            found = False
-                            For j = LBound(removedStaff) To UBound(removedStaff)
-                                If removedStaff(j) = staffName Then found = True
-                            Next j
-                            If Not found Then
-                                ReDim Preserve removedStaff(UBound(removedStaff) + 1)
-                                removedStaff(UBound(removedStaff)) = staffName
-                            End If
-                            Exit For
-                        End If
-                    Next i
-                End If
-            Next r
-            
-            ' Build staff pool with only All Days staff needing reassignment (currDuties < maxDuties)
-            Dim staffPool() As String
-            ReDim staffPool(0)
-            For i = 1 To afternoontbl.ListRows.Count
+        If unfilledSlots > 0 And eligibleStaffCount > 0 Then
+            ' Enter reassignment phase
+            Call ReassignAfternoonDuties
+        Else
+            Exit Do
+        End If
+        reassignmentAttempts = reassignmentAttempts + 1
+        If reassignmentAttempts > MAX_ATTEMPTS Then
+            Debug.Print "Max reassignment attempts reached. Assigning remaining staff to unfilled slots."
+            ' Fallback: Assign all remaining eligible staff to unfilled slots
+            Dim eligibleStaffList As Collection
+            Set eligibleStaffList = New Collection
+            For i = 1 To afternoontbl.ListRows.count
                 staffName = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value
-                If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" Then
-                    maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
-                    currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
-                    If currDuties < maxDuties Then
-                        found = False
-                        For j = LBound(staffPool) To UBound(staffPool)
-                            If staffPool(j) = staffName Then found = True
-                        Next j
-                        If Not found Then
-                            ReDim Preserve staffPool(UBound(staffPool) + 1)
-                            staffPool(UBound(staffPool)) = staffName
-                        End If
-                    End If
+                maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
+                currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
+                dept = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Department").Index).Value
+                If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" And _
+                   currDuties < maxDuties Then
+                    eligibleStaffList.Add Array(staffName, dept)
                 End If
             Next i
             
-            ' Combine removed staff with staff pool (avoid duplicates)
-            For j = LBound(removedStaff) To UBound(removedStaff)
-                If removedStaff(j) <> "" Then
-                    found = False
-                    For k = LBound(staffPool) To UBound(staffPool)
-                        If staffPool(k) = removedStaff(j) Then found = True
-                    Next k
-                    If Not found Then
-                        ReDim Preserve staffPool(UBound(staffPool) + 1)
-                        staffPool(UBound(staffPool)) = removedStaff(j)
-                    End If
+            Dim unfilledSlotsList As Collection
+            Set unfilledSlotsList = New Collection
+            For r = START_ROW To last_row_roster
+                If wsRoster.Cells(r, DAY_COL).Value <> "Sat" And _
+                   wsRoster.Cells(r, AFT_COL).Value = "" Then
+                    unfilledSlotsList.Add r
                 End If
-            Next j
-            
-            ' Shuffle staff pool
-            Dim tmpStaff() As String
-            If UBound(staffPool) > 0 Then
-                ReDim tmpStaff(1 To UBound(staffPool))
-                For j = 1 To UBound(staffPool)
-                    tmpStaff(j) = staffPool(j)
-                Next j
-                Call ShuffleArrayString(tmpStaff)
-            End If
-            
-            ' Reassign randomly from staff pool
-            Dim assignedInThisPass As Boolean
-            assignedInThisPass = False
-            For r = lastTwoWeeksStart To LAST_ROW_ROSTER
-                If wsRoster.Cells(r, DAY_COL).Value = "Sat" Then GoTo SkipReassignDay
-                If wsRoster.Cells(r, AFT_COL).Value <> "" Or wsRoster.Cells(r, AFT_COL).Value = "CLOSED" Then GoTo SkipReassignDay
-                
-                For i = 1 To UBound(tmpStaff)
-                    staffName = tmpStaff(i)
-                    For j = 1 To afternoontbl.ListRows.Count
-                        If afternoontbl.DataBodyRange(j, afternoontbl.ListColumns("Name").Index).Value = staffName And _
-                           UCase(afternoontbl.DataBodyRange(j, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" Then
-                            maxDuties = afternoontbl.DataBodyRange(j, afternoontbl.ListColumns("Max Duties").Index).Value
-                            currDuties = afternoontbl.DataBodyRange(j, afternoontbl.ListColumns("Duties Counter").Index).Value
-                            If currDuties < maxDuties And Not IsWorkingOnSameDay(r, staffName) Then
-                                wsRoster.Cells(r, AFT_COL).Value = staffName
-                                Call IncrementDutiesCounter(staffName)
-                                Debug.Print "Reassigned All Days staff " & staffName & " to row " & r & " (Last 2 weeks)"
-                                assignedInThisPass = True
-                                Exit For
-                            Else
-                                Debug.Print "  Skipped " & staffName & " at row " & r & " (Limit reached or same-day conflict)"
-                            End If
-                        End If
-                    Next j
-                    If wsRoster.Cells(r, AFT_COL).Value <> "" Then Exit For
-                Next i
-SkipReassignDay:
             Next r
             
-            ' If no assignments were made in this pass, break the loop to avoid infinite cycling
-            If Not assignedInThisPass Then needsReassignment = False
+            ' Assign each eligible staff to an unfilled slot
+            For i = 1 To eligibleStaffList.count
+                If i <= unfilledSlotsList.count Then
+                    staffName = eligibleStaffList(i)(0)
+                    dept = eligibleStaffList(i)(1)
+                    r = unfilledSlotsList(i)
+                    If Not IsWorkingOnSameDay(r, staffName) Then
+                        If UCase(Trim(wsRoster.Cells(r, VAC_COL).Value)) = "VACATION" And UCase(dept) <> "APRM" Then
+                            Debug.Print "Fallback: Skipped " & staffName & " for vacation row " & r & " (not APRM)"
+                        Else
+                            wsRoster.Cells(r, AFT_COL).Value = staffName
+                            wsRoster.Cells(r, AFT_COL).Interior.Color = vbYellow ' Highlight yellow (RGB 255, 255, 0)
+                            Call IncrementDutiesCounter(staffName)
+                            Debug.Print "Fallback: Assigned " & staffName & " to row " & r & " (highlighted yellow)"
+                        End If
+                    Else
+                        Debug.Print "Fallback: Skipped " & staffName & " at row " & r & " due to AOH conflict"
+                    End If
+                End If
+            Next i
+            Exit Do
         End If
-    Loop Until Not needsReassignment
+    Loop
     
-    MsgBox "Duties assignment completed!", vbInformation
+    MsgBox "Afternoon duties assignment completed!", vbInformation
 End Sub
+
+' Helper to count unfilled Afternoon slots
+Function CountUnfilledSlots(startRow As Long, endRow As Long) As Long
+    Dim r As Long
+    Dim count As Long
+    count = 0
+    For r = startRow To endRow
+        If wsRoster.Cells(r, DAY_COL).Value <> "Sat" And _
+           wsRoster.Cells(r, AFT_COL).Value = "" Then
+            count = count + 1
+        End If
+    Next r
+    CountUnfilledSlots = count
+End Function
+
+' Helper to count eligible staff (duties < max)
+Function CountEligibleStaff() As Long
+    Dim i As Long
+    Dim count As Long
+    count = 0
+    For i = 1 To afternoontbl.ListRows.count
+        Dim staffName As String
+        Dim maxDuties As Long
+        Dim currDuties As Long
+        staffName = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value
+        maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
+        currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
+        If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" And _
+           currDuties < maxDuties Then
+            count = count + 1
+        End If
+    Next i
+    CountEligibleStaff = count
+End Function
+
+Sub ReassignAfternoonDuties()
+    Dim r As Long
+    Dim i As Long
+    Dim staffName As String
+    Dim maxDuties As Long
+    Dim currDuties As Long
+    Dim eligibleStaff As String
+    Dim swapCandidate As String
+    Dim emptyRow As Long ' The empty original slot where eligibleStaff couldn't be assigned
+    Dim dept As String
+    
+    ' Find the first eligible staff (currDuties < maxDuties)
+    eligibleStaff = GetFirstEligibleStaff
+    If eligibleStaff = "" Then
+        Debug.Print "No eligible staff found for Afternoon reassignment."
+        Exit Sub
+    End If
+    Debug.Print "Eligible staff for Afternoon reassignment: " & eligibleStaff
+    
+    ' Get department of eligibleStaff
+    For i = 1 To afternoontbl.ListRows.count
+        If afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value = eligibleStaff Then
+            dept = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Department").Index).Value
+            Exit For
+        End If
+    Next i
+    
+    ' Assume emptyRow is determined earlier (e.g., the last unfilled slot)
+    emptyRow = FindLastUnfilledSlot(START_ROW, last_row_roster)
+    If emptyRow = 0 Then Exit Sub ' No empty slot to reassign
+    
+    ' Loop through all rows to find a swap opportunity
+    For r = START_ROW To last_row_roster
+        If wsRoster.Cells(r, DAY_COL).Value = "Sat" Or _
+           wsRoster.Cells(r, AFT_COL).Value = "CLOSED" Or _
+           wsRoster.Cells(r, AFT_COL).Value = "" Then
+            GoTo NextRow
+        End If
+        
+        swapCandidate = wsRoster.Cells(r, AFT_COL).Value
+        If swapCandidate <> "" And swapCandidate <> eligibleStaff Then
+            ' Get department of swapCandidate
+            Dim swapDept As String
+            For i = 1 To afternoontbl.ListRows.count
+                If afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value = swapCandidate Then
+                    swapDept = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Department").Index).Value
+                    Exit For
+                End If
+            Next i
+            
+            ' Check if swap is allowed (no conflict in destination and original slot, respect vacation constraint)
+            If Not IsWorkingOnSameDay(r, eligibleStaff) And Not IsWorkingOnSameDay(emptyRow, swapCandidate) Then
+                If UCase(Trim(wsRoster.Cells(emptyRow, VAC_COL).Value)) = "VACATION" And UCase(swapDept) <> "APRM" Then
+                    Debug.Print "Swap skipped for row " & r & " (swapCandidate " & swapCandidate & " not APRM for vacation slot " & emptyRow & ")"
+                    GoTo NextRow
+                End If
+                ' Perform swap
+                wsRoster.Cells(r, AFT_COL).Value = eligibleStaff
+                Call IncrementDutiesCounter(eligibleStaff)
+                Debug.Print "Assigned " & eligibleStaff & " to row " & r
+                
+                wsRoster.Cells(emptyRow, AFT_COL).Value = swapCandidate
+                Call IncrementDutiesCounter(swapCandidate)
+                Debug.Print "Assigned " & swapCandidate & " to row " & emptyRow
+                
+                Exit Sub ' Exit after successful swap
+            Else
+                Debug.Print "Swap not possible at row " & r & " due to conflict (dest: " & r & ", orig: " & emptyRow & ")"
+            End If
+        End If
+NextRow:
+    Next r
+End Sub
+
+' Helper to find the last unfilled slot
+Function FindLastUnfilledSlot(startRow As Long, endRow As Long) As Long
+    Dim r As Long
+    FindLastUnfilledSlot = 0
+    For r = startRow To endRow
+        If wsRoster.Cells(r, DAY_COL).Value <> "Sat" And _
+           wsRoster.Cells(r, AFT_COL).Value = "" Then
+            FindLastUnfilledSlot = r
+        End If
+    Next r
+End Function
+
+' Helper to find the original Afternoon duty slot for a staff (excluding the current row)
+Function FindOriginalAfternoonDuty(staffName As String, excludeRow As Long) As Long
+    Dim r As Long
+    For r = START_ROW To last_row_roster
+        If r <> excludeRow And wsRoster.Cells(r, AFT_COL).Value = staffName And _
+           wsRoster.Cells(r, DAY_COL).Value <> "Sat" Then
+            FindOriginalAfternoonDuty = r
+            Exit Function
+        End If
+    Next r
+    FindOriginalAfternoonDuty = 0 ' No original slot found
+End Function
 
 ' Helper to shuffle array
 Sub ShuffleArray(arr() As Long)
     Dim i As Long, j As Long, tmp As Long
-    Randomize
-    For i = UBound(arr) To LBound(arr) + 1 Step -1
-        j = Int(Rnd() * (i - LBound(arr) + 1)) + LBound(arr)
-        tmp = arr(i)
-        arr(i) = arr(j)
-        arr(j) = tmp
-    Next i
-End Sub
-
-' Helper to shuffle array of strings
-Sub ShuffleArrayString(arr() As String)
-    Dim i As Long, j As Long, tmp As String
     Randomize
     For i = UBound(arr) To LBound(arr) + 1 Step -1
         j = Int(Rnd() * (i - LBound(arr) + 1)) + LBound(arr)
@@ -260,20 +347,11 @@ Function GetEligibleRows(totalDays As Long, workDays As Variant) As Collection
     Dim r As Long, j As Long
     Dim dayName As String
 
-    'Debug.Print "=== Checking Eligible Rows ==="
-    'Debug.Print "WorkDays:"
-    For j = LBound(workDays) To UBound(workDays)
-        'Debug.Print "[" & j & "]: " & workDays(j)
-    Next j
-    
-    For r = START_ROW To LAST_ROW_ROSTER
+    For r = START_ROW To last_row_roster
         dayName = Trim(wsRoster.Cells(r, DAY_COL).Value)
-        ' Debug: show what day we are checking
-        'Debug.Print "Row " & r & ": " & dayName
         
         ' Skip if already filled
         If Not IsEmpty(wsRoster.Cells(r, AFT_COL)) Then
-            'Debug.Print "  -> Skipped (Already Assigned)"
             GoTo SkipRow
         End If
         
@@ -281,30 +359,21 @@ Function GetEligibleRows(totalDays As Long, workDays As Variant) As Collection
         For j = LBound(workDays) To UBound(workDays)
             If dayName = workDays(j) Then
                 eligibleRows.Add r
-                'Debug.Print "  -> Added (Matched with " & workDays(j) & ")"
                 Exit For
             End If
         Next j
         
 SkipRow:
     Next r
-    'Debug.Print "Total Eligible: " & eligibleRows.Count
     Set GetEligibleRows = eligibleRows
 End Function
 
 Sub IncrementDutiesCounter(staffName As String)
     Dim rowIdx As Variant
     Dim foundCell As Range
-
-    ' Search for the staff name
-    Set foundCell = afternoontbl.ListColumns("Name").DataBodyRange.Find( _
-        What:=staffName, LookIn:=xlValues, LookAt:=xlWhole)
-
+    Set foundCell = afternoontbl.ListColumns("Name").DataBodyRange.Find(What:=staffName, LookIn:=xlValues, LookAt:=xlWhole)
     If Not foundCell Is Nothing Then
-        ' Get relative row index in the table
         rowIdx = foundCell.row - afternoontbl.HeaderRowRange.row
-
-        ' Increment Duties Counter
         With afternoontbl.ListRows(rowIdx).Range.Cells(afternoontbl.ListColumns("Duties Counter").Index)
             .Value = .Value + 1
         End With
@@ -316,16 +385,9 @@ End Sub
 Sub DecrementDutiesCounter(staffName As String)
     Dim rowIdx As Variant
     Dim foundCell As Range
-
-    ' Search for the staff name
-    Set foundCell = afternoontbl.ListColumns("Name").DataBodyRange.Find( _
-        What:=staffName, LookIn:=xlValues, LookAt:=xlWhole)
-
+    Set foundCell = afternoontbl.ListColumns("Name").DataBodyRange.Find(What:=staffName, LookIn:=xlValues, LookAt:=xlWhole)
     If Not foundCell Is Nothing Then
-        ' Get relative row index in the table
         rowIdx = foundCell.row - afternoontbl.HeaderRowRange.row
-
-        ' Decrement Duties Counter
         With afternoontbl.ListRows(rowIdx).Range.Cells(afternoontbl.ListColumns("Duties Counter").Index)
             .Value = .Value - 1
             If .Value < 0 Then .Value = 0 ' Prevent negative values
@@ -341,7 +403,27 @@ Function IsWorkingOnSameDay(row As Long, staffName As String) As Boolean
         IsWorkingOnSameDay = True
         Exit Function
     End If
-        
     IsWorkingOnSameDay = False
 End Function
+
+' Helper to get the first eligible staff (duties < max)
+Function GetFirstEligibleStaff() As String
+    Dim i As Long
+    For i = 1 To afternoontbl.ListRows.count
+        Dim staffName As String
+        Dim maxDuties As Long
+        Dim currDuties As Long
+        staffName = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Name").Index).Value
+        maxDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Max Duties").Index).Value
+        currDuties = afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Duties Counter").Index).Value
+        If UCase(afternoontbl.DataBodyRange(i, afternoontbl.ListColumns("Availability Type").Index).Value) <> "SPECIFIC DAYS" And _
+           currDuties < maxDuties Then
+            GetFirstEligibleStaff = staffName
+            Exit Function
+        End If
+    Next i
+    GetFirstEligibleStaff = ""
+End Function
+
+
 
