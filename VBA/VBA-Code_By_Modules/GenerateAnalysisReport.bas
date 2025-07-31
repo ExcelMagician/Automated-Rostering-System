@@ -147,6 +147,24 @@ Sub MasterGenerateAllAnalyses()
     GenerateShiftAnalysisBlock wsAnalysis, rosterSheet, "Afternoon PersonnelList", "AfternoonMainList", "Afternoon Slot Analysis", AFT_COL, 13
     GenerateShiftAnalysisBlock wsAnalysis, rosterSheet, "AOH PersonnelList", "AOHMainList", "AOH Slot Analysis", AOH_COL, 19
     GenerateShiftAnalysisBlock wsAnalysis, rosterSheet, "Sat AOH PersonnelList", "SatAOHMainList", "Sat AOH Slot Analysis", SAT_AOH_COL1, 25
+    GenerateShiftAnalysisBlock wsAnalysis, rosterSheet, "Sat AOH PersonnelList", "SatAOHMainList", _
+    "Sat AOH Slot Analysis", SAT_AOH_COL1, 25, SAT_AOH_COL2
+    GenerateTotalSummaryTable wsAnalysis
+    
+    With wsAnalysis.Cells
+        .Locked = True
+    End With
+    
+    wsAnalysis.Protect password:="nuslib2017@52", _
+                        AllowSorting:=True, _
+                        AllowFiltering:=True, _
+                        AllowFormattingCells:=True
+                        
+    
+
+    MsgBox "All shift analyses completed for '" & rosterSheet.Name & "'!", vbInformation
+End Sub
+
 
     MsgBox "All shift analyses completed successfully!"
 End Sub
