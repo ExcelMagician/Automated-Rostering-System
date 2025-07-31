@@ -121,6 +121,24 @@ Sub MasterGenerateAllAnalyses()
     End If
 
     Set rosterSheet = Sheets(latestRosterName)
+    ' Prompt user to click on any cell in the target ActualRoster_* sheet
+    On Error Resume Next
+    Set userRange = Application.InputBox( _
+        Prompt:="Please choose one 'ActualRoster' sheet to analyse." & vbCrLf & _
+                "After that, click on any cell on the selected 'ActualRoster' sheet." & vbCrLf & _
+                "The sheet name must start with 'ActualRoster_'", _
+        title:="Select Actual Roster Sheet", _
+        Type:=8)
+    On Error GoTo 0
+
+    If userRange Is Nothing Then Exit Sub ' User cancelled
+
+    Set selectedSheet = userRange.Worksheet
+    If selectedSheet.Name Like "ActualRoster_*" = False Then
+        MsgBox "Invalid selection. Please choose a sheet that starts with 'ActualRoster_'.", vbExclamation
+        Exit Sub
+    End If
+    Set rosterSheet = selectedSheet
 
     ' Create clean MorningAnalysis sheet
     On Error Resume Next
